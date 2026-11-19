@@ -125,6 +125,11 @@ fn stop_recording_handler<R: Runtime>(app: &AppHandle<R>) {
 /// (SQLite save, summary). Shared by the tray and the meeting detector; it does
 /// not focus the window, so a background stop doesn't steal focus mid-call.
 pub(crate) async fn stop_recording_from_backend<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    // Nothing to stop (or another stop is mid-flight): don't emit a second
+    // recording-stop-complete, which would make the frontend save twice.
+    if !crate::audio::recording_commands::recording_live() {
+        return Ok(());
+    }
     set_tray_state(app, RecordingState::Stopping);
     log::info!("Stopping recording from backend...");
 

@@ -28,7 +28,7 @@ Argument: a meeting id, `latest`, or nothing (= latest).
 3. Optional context, read-only and only if those tools are available in this session: `ai-memory` (prior decisions on the same topic). Do not call anything that writes.
 4. Turn findings into **Ações propostas** — the follow-ups the user would most likely want, each one tagged with where it would go:
    `izzyplan-card`, `email`, `calendar-event`, `teams-message`, `notion-page`, `nenhuma` (just awareness).
-5. Write the file `~/markdowns/meetings/<YYYY-MM-DD>-<slug-do-titulo>.md` (date = the meeting's `created_at_local`), using the template below. Create the folder if needed. If the file exists, overwrite it — the debrief is regenerated from the same source.
+5. Write the file `~/markdowns/meetings/<YYYY-MM-DD-HHMM>-<slug-do-titulo>.md` (date and time = the meeting's `created_at_local`, so two same-day meetings with the same title don't collide), using the template below. Create the folder if needed. If that exact file exists **and** its front matter has the same `meeting_id` and `status: proposto`, overwrite it; if it is `aplicado`/`parcial` or belongs to another meeting, stop and report instead of overwriting.
 6. Final line of your reply, exactly (the Meetily app parses it for the notification):
    `DEBRIEF: <absolute path> | tarefas=<N> | pendencias=<M> | decisoes=<K>`
 

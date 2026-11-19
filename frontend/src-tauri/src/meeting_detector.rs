@@ -19,6 +19,8 @@ const POLL_EVERY: Duration = Duration::from_secs(3);
 const START_AFTER: Duration = Duration::from_secs(5);
 /// Mic must be released this long before stopping (survives drop + rejoin).
 const STOP_AFTER: Duration = Duration::from_secs(30);
+/// Wait after any recording ends before auto-starting another (frontend save window).
+const COOLDOWN: Duration = Duration::from_secs(90);
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Action {
@@ -35,6 +37,11 @@ pub struct Debouncer {
 }
 
 impl Debouncer {
+    /// Forget a Start the caller could not act on, so the next ticks retry it.
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
     pub fn step(&mut self, in_call: bool, now: Instant) -> Option<Action> {
         if in_call {
             self.out_since = None;
@@ -83,10 +90,14 @@ fn teams_using_mic() -> bool {
     false
 }
 
-async fn enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
-    crate::audio::recording_preferences::load_recording_preferences(app)
-        .await
-        .map(|p| p.auto_record_teams)
+/// Reads only the flag; `load_recording_preferences` logs at info on every call,
+/// which would add ~29k lines/day at a 3s poll.
+fn enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
+    use tauri_plugin_store::StoreExt;
+    app.store("recording_preferences.json")
+        .ok()
+        .and_then(|store| store.get("preferences"))
+        .and_then(|prefs| prefs.get("auto_record_teams").and_then(|v| v.as_bool()))
         .unwrap_or(false)
 }
 
@@ -100,24 +111,38 @@ pub fn start<R: Runtime>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let mut debouncer = Debouncer::default();
         let mut we_started = false;
+        let mut was_recording = false;
+        let mut last_recording_end: Option<Instant> = None;
         let mut tick = tokio::time::interval(POLL_EVERY);
         loop {
             tick.tick().await;
-            if !enabled(&app).await {
-                debouncer = Debouncer::default();
-                continue;
-            }
+            let now = Instant::now();
             let recording = crate::audio::recording_commands::is_recording().await;
-            if we_started && !recording {
-                we_started = false; // stopped by the user meanwhile
+            if was_recording && !recording {
+                last_recording_end = Some(now);
+                we_started = false; // whoever stopped it, we no longer own a recording
+            }
+            was_recording = recording;
+
+            if !enabled(&app) {
+                debouncer.reset();
+                we_started = false;
+                continue;
             }
 
             let in_call = tokio::task::spawn_blocking(teams_using_mic)
                 .await
                 .unwrap_or(false);
 
-            match debouncer.step(in_call, Instant::now()) {
-                Some(Action::Start) if !recording => {
+            match debouncer.step(in_call, now) {
+                Some(Action::Start) => {
+                    // The frontend saves a stopped meeting asynchronously (up to ~60s);
+                    // starting the next one before that finishes mixes their transcripts.
+                    let cooling_down = last_recording_end.is_some_and(|t| now.duration_since(t) < COOLDOWN);
+                    if recording || cooling_down {
+                        debouncer.reset(); // retry on later ticks
+                        continue;
+                    }
                     let name = format!("Teams {}", chrono::Local::now().format("%Y-%m-%d %H:%M"));
                     log::info!("meeting_detector: Teams call detected, starting recording '{}'", name);
                     match crate::audio::recording_commands::start_recording_with_meeting_name(
@@ -128,16 +153,24 @@ pub fn start<R: Runtime>(app: AppHandle<R>) {
                     {
                         Ok(()) => {
                             we_started = true;
+                            was_recording = true;
                             notify(&app, "Gravando reunião do Teams", "Avise os participantes que a reunião está sendo gravada.");
                         }
-                        Err(e) => log::error!("meeting_detector: failed to start recording: {}", e),
+                        Err(e) => {
+                            log::error!("meeting_detector: failed to start recording: {}", e);
+                            notify(&app, "Não foi possível gravar a reunião do Teams", &e);
+                            debouncer.reset();
+                        }
                     }
                 }
                 Some(Action::Stop) if we_started && recording => {
                     log::info!("meeting_detector: Teams call ended, stopping recording");
-                    we_started = false;
-                    if let Err(e) = crate::tray::stop_recording_from_backend(&app).await {
-                        log::error!("meeting_detector: {}", e);
+                    match crate::tray::stop_recording_from_backend(&app).await {
+                        Ok(()) => we_started = false,
+                        Err(e) => {
+                            log::error!("meeting_detector: {}", e);
+                            notify(&app, "Não foi possível parar a gravação", &e);
+                        }
                     }
                 }
                 _ => {}
@@ -180,6 +213,17 @@ mod tests {
         assert_eq!(d.step(true, at(t, 9)), None);
         assert_eq!(d.step(true, at(t, 12)), None);
         assert_eq!(d.step(true, at(t, 14)), Some(Action::Start));
+    }
+
+    #[test]
+    fn reset_after_skipped_start_retries() {
+        let t = Instant::now();
+        let mut d = Debouncer::default();
+        d.step(true, at(t, 0));
+        assert_eq!(d.step(true, at(t, 5)), Some(Action::Start));
+        d.reset(); // caller couldn't start (manual recording running / cooldown)
+        assert_eq!(d.step(true, at(t, 8)), None);
+        assert_eq!(d.step(true, at(t, 13)), Some(Action::Start));
     }
 
     #[test]

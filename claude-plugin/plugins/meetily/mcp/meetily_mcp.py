@@ -100,6 +100,8 @@ def get_latest_meeting() -> dict:
 def get_meeting_transcript(meeting_id: str, offset: int = 0, limit: int = 400) -> dict:
     offset, limit = max(0, int(offset)), max(1, min(int(limit), 2000))
     with connect() as conn:
+        if conn.execute("SELECT 1 FROM meetings WHERE id = ?", (meeting_id,)).fetchone() is None:
+            raise ValueError(f"No meeting with id {meeting_id!r}")  # an empty transcript must mean an empty meeting
         total = conn.execute("SELECT COUNT(*) FROM transcripts WHERE meeting_id = ?", (meeting_id,)).fetchone()[0]
         rows = conn.execute(
             """SELECT audio_start_time, timestamp, speaker, transcript FROM transcripts

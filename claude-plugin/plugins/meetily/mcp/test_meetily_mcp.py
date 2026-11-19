@@ -76,12 +76,13 @@ def main() -> None:
         assert [h["meeting_id"] for h in hits] == ["m2"], hits
         assert [h["meeting_id"] for h in m.search_transcripts("%")] == ["m2"]  # literal %, not match-all
 
-        try:
-            m.get_meeting("nope")
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("missing meeting should raise")
+        for fn in (m.get_meeting, m.get_meeting_transcript):
+            try:
+                fn("nope")
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"{fn.__name__}: missing meeting should raise")
 
         # read-only: writes through the module's connection must fail
         with m.connect() as conn:

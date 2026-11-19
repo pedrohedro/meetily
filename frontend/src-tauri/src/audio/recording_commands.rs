@@ -47,7 +47,7 @@ static IS_RECORDING_STOPPING: AtomicBool = AtomicBool::new(false);
 
 /// Recording is live and not being torn down — the only state in which the
 /// mic-disconnect fallback should run or report.
-fn recording_live() -> bool {
+pub(crate) fn recording_live() -> bool {
     IS_RECORDING.load(Ordering::SeqCst) && !IS_RECORDING_STOPPING.load(Ordering::SeqCst)
 }
 
@@ -681,9 +681,11 @@ pub async fn stop_recording<R: Runtime>(
         "🛑 Starting optimized recording shutdown - ensuring ALL transcript chunks are preserved"
     );
 
-    // Check if recording is active
-    if !IS_RECORDING.load(Ordering::SeqCst) {
-        info!("Recording was not active");
+    // Check if recording is active and not already being stopped. IS_RECORDING stays
+    // true through the whole stop tail, so without the stopping check a second
+    // caller (UI, tray, meeting detector) would run the tail concurrently.
+    if !recording_live() {
+        info!("Recording was not active or is already stopping");
         return Ok(());
     }
 

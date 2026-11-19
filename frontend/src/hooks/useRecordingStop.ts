@@ -125,6 +125,7 @@ export function useRecordingStop(
 
     // Guard: prevent duplicate/concurrent stop calls
     if (stopInProgressRef.current) {
+      console.warn('[useRecordingStop] stop already in progress; ignoring duplicate stop');
       return;
     }
     stopInProgressRef.current = true;
