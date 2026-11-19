@@ -77,3 +77,6 @@ experiments/
 target/
 
 frontend/src-tauri/binaries/
+# ruflo/claude-flow hook artifacts
+.claude-flow/
+.swarm/

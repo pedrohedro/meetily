@@ -8,6 +8,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { TranscriptPanel } from '@/components/MeetingDetails/TranscriptPanel';
 import { SummaryPanel } from '@/components/MeetingDetails/SummaryPanel';
+import { DebriefPanel } from '@/components/MeetingDetails/DebriefPanel';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MeetingDetailsSplitView, type MeetingDetailsTab } from '@/components/MeetingDetails/MeetingDetailsSplitView';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 
@@ -221,6 +223,13 @@ export default function PageContent({
             />
           }
           summary={
+            <Tabs defaultValue="summary" className="flex h-full min-h-0 w-full flex-col">
+              <TabsList className="mx-4 mt-2 self-start">
+                <TabsTrigger value="summary">Summary</TabsTrigger>
+                <TabsTrigger value="debrief">Claude Debrief</TabsTrigger>
+              </TabsList>
+              {/* forceMount keeps SummaryPanel (and any in-flight save) alive while the Debrief tab is open */}
+              <TabsContent forceMount value="summary" className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
             <SummaryPanel
               meeting={meeting}
               meetingTitle={meetingData.meetingTitle}
@@ -250,6 +259,11 @@ export default function PageContent({
               isModelConfigLoading={isModelConfigLoading}
               onOpenModelSettings={handleRegisterModalOpen}
             />
+              </TabsContent>
+              <TabsContent value="debrief" className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+                <DebriefPanel meetingId={meeting.id} />
+              </TabsContent>
+            </Tabs>
           }
         />
       </div>

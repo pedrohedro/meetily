@@ -509,6 +509,7 @@ pub fn run() {
             log::info!("Application setup complete");
 
             // Initialize system tray
+            debrief::recover_on_startup(_app.handle());
             meeting_detector::start(_app.handle().clone());
             if let Err(e) = tray::create_tray(_app.handle()) {
                 log::error!("Failed to create system tray: {}", e);
@@ -752,6 +753,10 @@ pub fn run() {
             summary::commands::api_save_meeting_detected_summary_language,
             summary::commands::api_detect_transcript_summary_language,
             summary::commands::api_cancel_summary,
+            debrief::api_get_debrief,
+            debrief::api_run_debrief,
+            debrief::api_prepare_debrief_action,
+            debrief::api_execute_debrief_action,
             // Template commands
             summary::template_commands::api_list_templates,
             summary::template_commands::api_get_template_details,
