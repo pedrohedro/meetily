@@ -143,9 +143,14 @@ pub fn load(dir: &Path, meeting_id: &str) -> Result<Option<Debrief>, String> {
     if let Ok(debrief) = serde_json::from_str::<Debrief>(&text) {
         return Ok(Some(debrief));
     }
-    let legacy = serde_json::from_str::<Value>(&text)
-        .ok()
-        .is_some_and(|v| v.get("type").and_then(|t| t.as_str()) == Some("result"));
+    // The previous version stored `claude -p --output-format json` verbatim: a result
+    // object, or (as observed on this machine) an array of events ending in one.
+    let is_result = |v: &Value| v.get("type").and_then(|t| t.as_str()) == Some("result");
+    let legacy = match serde_json::from_str::<Value>(&text) {
+        Ok(Value::Array(events)) => events.iter().any(is_result),
+        Ok(v) => is_result(&v),
+        Err(_) => false,
+    };
     if legacy {
         return Ok(Some(Debrief::new(meeting_id, Status::Completed)));
     }
@@ -286,6 +291,8 @@ mod tests {
         let legacy = load(&dir, "meeting-old").unwrap().unwrap();
         assert_eq!(legacy.status, Status::Completed);
         assert!(legacy.result.is_none());
+        std::fs::write(path(&dir, "meeting-old2"), r#"[{"type":"system"},{"type":"result","is_error":false}]"#).unwrap();
+        assert_eq!(load(&dir, "meeting-old2").unwrap().unwrap().status, Status::Completed);
         assert_eq!(load(&dir, "meeting-none").unwrap(), None);
 
         // corruption is an error, never an empty debrief that a regenerate could overwrite
