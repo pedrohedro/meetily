@@ -1,0 +1,12 @@
+{
+  "name": "meetily-local",
+  "description": "Local plugins for the pedrohedro/meetily fork.",
+  "owner": { "name": "pedrohedro" },
+  "plugins": [
+    {
+      "name": "meetily",
+      "source": "./plugins/meetily",
+      "description": "Local Claude Meetings on top of Meetily recordings."
+    }
+  ]
+}

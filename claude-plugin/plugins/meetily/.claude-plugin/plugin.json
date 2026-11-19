@@ -1,0 +1,8 @@
+{
+  "name": "meetily",
+  "displayName": "Meetily",
+  "version": "0.1.0",
+  "description": "Local Claude Meetings: read meetings recorded by Meetily and debrief them into tasks, pending plans and decisions.",
+  "author": { "name": "pedrohedro" },
+  "license": "MIT"
+}

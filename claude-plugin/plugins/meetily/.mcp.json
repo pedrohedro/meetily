@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "meetily": {
+      "command": "uv",
+      "args": ["run", "--quiet", "--script", "${CLAUDE_PLUGIN_ROOT}/mcp/meetily_mcp.py"]
+    }
+  }
+}
