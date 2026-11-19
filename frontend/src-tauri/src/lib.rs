@@ -41,6 +41,8 @@ pub mod audio;
 pub mod config;
 pub mod console_utils;
 pub mod database;
+pub mod debrief;
+pub mod meeting_detector;
 pub mod notifications;
 pub mod ollama;
 pub mod onboarding;
@@ -507,6 +509,7 @@ pub fn run() {
             log::info!("Application setup complete");
 
             // Initialize system tray
+            meeting_detector::start(_app.handle().clone());
             if let Err(e) = tray::create_tray(_app.handle()) {
                 log::error!("Failed to create system tray: {}", e);
             }

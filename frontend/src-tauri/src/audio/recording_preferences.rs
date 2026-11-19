@@ -23,6 +23,16 @@ pub struct RecordingPreferences {
     #[cfg(target_os = "macos")]
     #[serde(default)]
     pub system_audio_backend: Option<String>,
+    /// Start/stop recording when a Microsoft Teams call holds the microphone (opt-in).
+    #[serde(default)]
+    pub auto_record_teams: bool,
+    /// After the summary is saved, run a headless Claude Code debrief (tasks, pending items).
+    #[serde(default = "default_true")]
+    pub auto_debrief: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for RecordingPreferences {
@@ -35,6 +45,8 @@ impl Default for RecordingPreferences {
             preferred_system_device: None,
             #[cfg(target_os = "macos")]
             system_audio_backend: Some("coreaudio".to_string()),
+            auto_record_teams: false,
+            auto_debrief: true,
         }
     }
 }

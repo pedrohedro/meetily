@@ -14,6 +14,8 @@ export interface RecordingPreferences {
   file_format: string;
   preferred_mic_device: string | null;
   preferred_system_device: string | null;
+  auto_record_teams: boolean;
+  auto_debrief: boolean;
 }
 
 interface RecordingSettingsProps {
@@ -26,7 +28,9 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     auto_save: true,
     file_format: 'mp4',
     preferred_mic_device: null,
-    preferred_system_device: null
+    preferred_system_device: null,
+    auto_record_teams: false,
+    auto_debrief: true
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -81,6 +85,12 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     await Analytics.track('auto_save_recording_toggled', {
       enabled: enabled.toString()
     });
+  };
+
+  const handleToggle = (key: 'auto_record_teams' | 'auto_debrief') => async (enabled: boolean) => {
+    const newPreferences = { ...preferences, [key]: enabled };
+    setPreferences(newPreferences);
+    await savePreferences(newPreferences);
   };
 
   const handleDeviceChange = async (devices: SelectedDevices) => {
@@ -233,6 +243,36 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
         <Switch
           checked={showRecordingNotification}
           onCheckedChange={handleNotificationToggle}
+        />
+      </div>
+
+      {/* Microsoft Teams auto-record */}
+      <div className="flex items-center justify-between p-4 border rounded-lg">
+        <div className="flex-1">
+          <div className="font-medium">Auto-record Microsoft Teams calls</div>
+          <div className="text-sm text-gray-600">
+            Start recording when a Teams call uses the microphone and stop when it ends. Tell participants they are being recorded.
+          </div>
+        </div>
+        <Switch
+          checked={preferences.auto_record_teams}
+          onCheckedChange={handleToggle('auto_record_teams')}
+          disabled={saving}
+        />
+      </div>
+
+      {/* Claude debrief */}
+      <div className="flex items-center justify-between p-4 border rounded-lg">
+        <div className="flex-1">
+          <div className="font-medium">Claude debrief after each meeting</div>
+          <div className="text-sm text-gray-600">
+            When the summary is ready, Claude Code lists tasks, pending promises and decisions in ~/markdowns/meetings (read-only; you approve follow-ups later).
+          </div>
+        </div>
+        <Switch
+          checked={preferences.auto_debrief}
+          onCheckedChange={handleToggle('auto_debrief')}
+          disabled={saving}
         />
       </div>
 
