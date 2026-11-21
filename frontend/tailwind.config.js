@@ -14,8 +14,31 @@ module.exports = {
   			]
   		},
   		colors: {
-  			background: 'hsl(var(--background))',
-  			foreground: 'hsl(var(--foreground))',
+  			background: 'hsl(var(--background) / <alpha-value>)',
+  			foreground: 'hsl(var(--foreground) / <alpha-value>)',
+  			// App neutral scale (see globals.css): flips in dark mode, light = Tailwind gray.
+  			sidebar: 'hsl(var(--sidebar) / <alpha-value>)',
+  			surface: {
+  				subtle: 'hsl(var(--surface-subtle) / <alpha-value>)',
+  				muted: 'hsl(var(--surface-muted) / <alpha-value>)',
+  				strong: 'hsl(var(--surface-strong) / <alpha-value>)',
+  				stronger: 'hsl(var(--surface-stronger) / <alpha-value>)'
+  			},
+  			fg: {
+  				strong: 'hsl(var(--fg-strong) / <alpha-value>)',
+  				DEFAULT: 'hsl(var(--fg) / <alpha-value>)',
+  				soft: 'hsl(var(--fg-soft) / <alpha-value>)',
+  				muted: 'hsl(var(--fg-muted) / <alpha-value>)',
+  				subtle: 'hsl(var(--fg-subtle) / <alpha-value>)',
+  				faint: 'hsl(var(--fg-faint) / <alpha-value>)',
+  				ghost: 'hsl(var(--fg-ghost) / <alpha-value>)'
+  			},
+  			line: {
+  				soft: 'hsl(var(--line-soft) / <alpha-value>)',
+  				DEFAULT: 'hsl(var(--line) / <alpha-value>)',
+  				strong: 'hsl(var(--line-strong) / <alpha-value>)',
+  				stronger: 'hsl(var(--line-stronger) / <alpha-value>)'
+  			},
   			border: 'hsl(var(--border))',
   			input: 'hsl(var(--input))',
   			ring: 'hsl(var(--ring))',
