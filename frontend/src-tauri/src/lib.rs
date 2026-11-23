@@ -757,6 +757,8 @@ pub fn run() {
             debrief::api_run_debrief,
             debrief::api_prepare_debrief_action,
             debrief::api_execute_debrief_action,
+            debrief::connection::api_claude_status,
+            debrief::connection::api_claude_test,
             // Template commands
             summary::template_commands::api_list_templates,
             summary::template_commands::api_get_template_details,

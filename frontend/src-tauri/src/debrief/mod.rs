@@ -10,6 +10,7 @@
 //! or stores Claude credentials. State lives in `store.rs` (one JSON per meeting).
 
 pub mod actions;
+pub mod connection;
 pub mod store;
 
 use std::path::{Path, PathBuf};
@@ -43,14 +44,17 @@ fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default()
 }
 
-fn find_claude() -> Option<PathBuf> {
+/// Where the Claude Code CLI is looked for (Dock-launched apps get a bare PATH).
+fn claude_candidates() -> [PathBuf; 3] {
     [
         home().join(".local/bin/claude"),
         PathBuf::from("/opt/homebrew/bin/claude"),
         PathBuf::from("/usr/local/bin/claude"),
     ]
-    .into_iter()
-    .find(|p| p.is_file())
+}
+
+fn find_claude() -> Option<PathBuf> {
+    claude_candidates().into_iter().find(|p| p.is_file())
 }
 
 /// Apps launched from the Dock get a bare PATH; `uv` (for the MCP server) lives in ~/.local/bin.

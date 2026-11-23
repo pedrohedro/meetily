@@ -87,7 +87,7 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     });
   };
 
-  const handleToggle = (key: 'auto_record_teams' | 'auto_debrief') => async (enabled: boolean) => {
+  const handleToggle = (key: 'auto_record_teams') => async (enabled: boolean) => {
     const newPreferences = { ...preferences, [key]: enabled };
     setPreferences(newPreferences);
     await savePreferences(newPreferences);
@@ -257,21 +257,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
         <Switch
           checked={preferences.auto_record_teams}
           onCheckedChange={handleToggle('auto_record_teams')}
-          disabled={saving}
-        />
-      </div>
-
-      {/* Claude debrief */}
-      <div className="flex items-center justify-between p-4 border rounded-lg">
-        <div className="flex-1">
-          <div className="font-medium">Claude debrief after each meeting</div>
-          <div className="text-sm text-fg-muted">
-            When the summary is ready, Claude Code lists tasks, pending promises and decisions in ~/markdowns/meetings (read-only; you approve follow-ups later).
-          </div>
-        </div>
-        <Switch
-          checked={preferences.auto_debrief}
-          onCheckedChange={handleToggle('auto_debrief')}
           disabled={saving}
         />
       </div>
