@@ -31,7 +31,7 @@ import { cn, isOllamaNotInstalledError } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export interface ModelConfig {
-  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai';
+  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai' | 'claude-code';
   model: string;
   whisperModel: string;
   apiKey?: string | null;
@@ -231,6 +231,7 @@ export function ModelSettingsModal({
     openrouter: openRouterModels.map((m) => m.id),
     'builtin-ai': builtinAiModels.map((m) => m.name),
     'custom-openai': customOpenAIModel ? [customOpenAIModel] : [], // User specifies model manually
+    'claude-code': ['default', 'sonnet', 'opus', 'fable'], // aliases understood by the claude CLI
   };
 
   const requiresApiKey =
@@ -268,7 +269,7 @@ export function ModelSettingsModal({
           setModelConfig(data);
 
           // Fetch API key if not included in response and provider requires it
-          if (data.provider !== 'ollama' && !data.apiKey) {
+          if (data.provider !== 'ollama' && data.provider !== 'claude-code' && !data.apiKey) {
             try {
               const apiKeyData = await invoke('api_get_api_key', {
                 provider: data.provider
@@ -875,7 +876,8 @@ export function ModelSettingsModal({
               </SelectTrigger>
               <SelectContent className="max-h-64 overflow-y-auto">
                 <SelectItem value="builtin-ai">Built-in AI (Offline, No API needed)</SelectItem>
-                <SelectItem value="claude">Claude</SelectItem>
+                <SelectItem value="claude-code">Claude Code (your Claude subscription)</SelectItem>
+                <SelectItem value="claude">Claude (API key)</SelectItem>
                 <SelectItem value="custom-openai">Custom Server (OpenAI)</SelectItem>
                 <SelectItem value="groq">Groq</SelectItem>
                 <SelectItem value="ollama">Ollama</SelectItem>

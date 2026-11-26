@@ -220,6 +220,8 @@ pub enum LLMProvider {
     OpenRouter,
     BuiltInAI,
     CustomOpenAI,
+    /// The user's own Claude Code login (subscription), run headless.
+    ClaudeCode,
 }
 
 impl LLMProvider {
@@ -233,6 +235,7 @@ impl LLMProvider {
             "openrouter" => Ok(Self::OpenRouter),
             "builtin-ai" | "local-llama" | "localllama" => Ok(Self::BuiltInAI),
             "custom-openai" => Ok(Self::CustomOpenAI),
+            "claude-code" => Ok(Self::ClaudeCode),
             _ => Err(format!("Unsupported LLM provider: {}", s)),
         }
     }
@@ -276,6 +279,12 @@ pub(crate) async fn generate_summary(
         if token.is_cancelled() {
             return Err("Summary generation was cancelled".to_string());
         }
+    }
+
+    if provider == &LLMProvider::ClaudeCode {
+        return crate::debrief::connection::complete(system_prompt, user_prompt, model_name, cancellation_token)
+            .await
+            .map(|content| LlmCompletion { content, reasoning_stripped: false });
     }
 
     // Handle BuiltInAI provider separately (uses local sidecar, no HTTP API)
@@ -344,6 +353,7 @@ pub(crate) async fn generate_summary(
             );
             ("https://api.anthropic.com/v1/messages".to_string(), header_map)
         }
+        LLMProvider::ClaudeCode => unreachable!("ClaudeCode is handled before this match statement"),
         LLMProvider::BuiltInAI => {
             // This case is handled earlier with early returns
             unreachable!("BuiltInAI is handled before this match statement")
@@ -922,6 +932,7 @@ fn provider_name(provider: &LLMProvider) -> &str {
         LLMProvider::BuiltInAI => "Built-in AI",
         LLMProvider::OpenRouter => "OpenRouter",
         LLMProvider::CustomOpenAI => "Custom OpenAI",
+        LLMProvider::ClaudeCode => "Claude Code",
     }
 }
 

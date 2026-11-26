@@ -477,6 +477,13 @@ export function useSummaryGeneration({
           return;
         }
       }
+      if (modelConfig.provider === 'claude-code') {
+        const status = await invokeTauri<{ installed: boolean; logged_in: boolean | null }>('api_claude_status');
+        if (!status.installed || status.logged_in !== true) {
+          showPreflightError('Claude Code is not signed in. Open Settings → Claude to check the connection.');
+          return;
+        }
+      }
       if (modelConfig.provider === 'builtin-ai') {
         if (!modelConfig.model) {
           showPreflightError('No built-in AI model selected. Please select a model in settings.');

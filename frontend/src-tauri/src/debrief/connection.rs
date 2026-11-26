@@ -13,6 +13,7 @@ use tauri::{AppHandle, Runtime};
 
 const STATUS_TIMEOUT: Duration = Duration::from_secs(20);
 const TEST_TIMEOUT: Duration = Duration::from_secs(90);
+const SUMMARY_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[derive(Debug, Default, PartialEq, Serialize)]
 pub struct ClaudeStatus {
@@ -142,6 +143,21 @@ pub async fn api_claude_test<R: Runtime>(app: AppHandle<R>) -> Result<TestResult
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn claude_code_is_a_summary_provider() {
+        use crate::summary::llm_client::LLMProvider;
+        assert_eq!(LLMProvider::from_str("claude-code"), Ok(LLMProvider::ClaudeCode));
+        assert_eq!(LLMProvider::from_str("claude"), Ok(LLMProvider::Claude)); // API-key provider untouched
+    }
+
+    /// Real round trip through the logged-in CLI: `cargo test -- --ignored claude_code_summary`.
+    #[tokio::test]
+    #[ignore]
+    async fn claude_code_summary_round_trip() {
+        let out = complete("Reply with one word.", "Say: pong", "default", None).await.unwrap();
+        assert!(out.to_lowercase().contains("pong"), "got: {out}");
+    }
+
     use super::*;
 
     #[test]
@@ -176,4 +192,73 @@ mod tests {
         assert!(short(&"x ".repeat(400)).ends_with('…'));
         assert_eq!(short("a\n b   c"), "a b c");
     }
+}
+
+
+/// One tool-less completion through the user's own Claude Code login, used as a
+/// summary provider. The transcript goes on stdin (argv would hit the OS limit),
+/// runs in an empty directory with no tools, MCP servers, hooks or skills, so the
+/// model can only answer with text.
+pub(crate) async fn complete(
+    system: &str,
+    user: &str,
+    model: &str,
+    cancel: Option<&tokio_util::sync::CancellationToken>,
+) -> Result<String, String> {
+    use tokio::io::AsyncWriteExt;
+
+    let claude = super::find_claude()
+        .ok_or("Claude Code CLI não encontrado: instale e rode `claude auth login`")?;
+    let dir = std::env::temp_dir().join("meetily-claude-summary");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("pasta temporária: {}", e))?;
+
+    let mut cmd = tokio::process::Command::new(claude);
+    cmd.arg("-p")
+        .args(["--tools", ""])
+        .args(["--setting-sources", "project"])
+        .args(["--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"])
+        .args(["--max-turns", "1", "--permission-mode", "dontAsk"])
+        .args(["--system-prompt", system]);
+    if !model.is_empty() && model != "default" {
+        cmd.args(["--model", model]);
+    }
+    cmd.current_dir(&dir)
+        .env("PATH", super::gui_path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = cmd.spawn().map_err(|e| format!("não foi possível iniciar o claude: {}", e))?;
+    let mut stdin = child.stdin.take().ok_or("stdin do claude indisponível")?;
+    let input = user.to_owned();
+    let writer = tokio::spawn(async move {
+        let _ = stdin.write_all(input.as_bytes()).await;
+        // stdin closes when dropped here
+    });
+
+    let run = async {
+        tokio::time::timeout(SUMMARY_TIMEOUT, child.wait_with_output())
+            .await
+            .map_err(|_| format!("tempo esgotado ({} s)", SUMMARY_TIMEOUT.as_secs()))?
+            .map_err(|e| format!("falha ao ler a saída do claude: {}", e))
+    };
+    let output = match cancel {
+        Some(token) => tokio::select! {
+            r = run => r?,
+            _ = token.cancelled() => return Err("Summary generation was cancelled".to_string()),
+        },
+        None => run.await?,
+    };
+    let _ = writer.await;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let tail: String = err.trim().chars().rev().take(300).collect::<Vec<_>>().into_iter().rev().collect();
+        return Err(format!("claude saiu com {}: {}", output.status, tail));
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        return Err("claude não devolveu texto".to_string());
+    }
+    Ok(text)
 }
