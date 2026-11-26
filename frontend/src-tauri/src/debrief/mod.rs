@@ -400,7 +400,8 @@ async fn prepare<R: Runtime>(app: &AppHandle<R>, dir: &Path, meeting_id: &str, i
         let action = debrief.actions.get(index).cloned().ok_or("ação não existe")?;
         let result = debrief.result.clone().unwrap_or_default();
         let text = |k: &str| result.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        let prompt = actions::prepare_prompt(&text("title"), &text("summary"), &action.title, &action.detail, &tools);
+        let context = actions::prepare_context(&action.destination, &actions::izzy_projects(&home().join(".claude/agents")));
+        let prompt = actions::prepare_prompt(&text("title"), &text("summary"), &action.title, &action.detail, &tools, &context);
         let schema = actions::prepare_schema().to_string();
         // The write tool stays visible (its schema is needed to draft the call), but the
         // guard hook refuses it, whatever the user's settings pre-approve.
@@ -415,7 +416,11 @@ async fn prepare<R: Runtime>(app: &AppHandle<R>, dir: &Path, meeting_id: &str, i
         );
         let output = run_claude(dir, prompt, &extra, &[], PREPARE_TIMEOUT).await?;
         let out = structured_output(&String::from_utf8_lossy(&output.stdout)).ok_or_else(|| {
-            format!("sem rascunho; veja {}", write_error_log(dir, &format!("{}.action{}.error.log", meeting_id, index), &output))
+            let why = result_event(&String::from_utf8_lossy(&output.stdout))
+                .and_then(|r| r.get("subtype").and_then(|v| v.as_str()).map(String::from))
+                .map(|s| if s == "error_max_turns" { "o Claude não concluiu o rascunho em 8 turnos".to_string() } else { s })
+                .unwrap_or_else(|| "sem resposta estruturada".to_string());
+            format!("sem rascunho ({}); veja {}", why, write_error_log(dir, &format!("{}.action{}.error.log", meeting_id, index), &output))
         })?;
         actions::validate_prepared(&action.destination, &out)
     }
