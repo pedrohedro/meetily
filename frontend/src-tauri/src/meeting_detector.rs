@@ -5,8 +5,10 @@
 //! Teams 2 (macOS 27): the helper `com.microsoft.teams2.modulehost` holds the mic
 //! for the whole call, keeps it while muted, and releases it on leaving.
 //!
-//! Only recordings this detector started are stopped by it; a manual recording
-//! is never touched.
+//! With the toggle on, the detector owns the recording for the length of a call:
+//! it starts one when a call begins, and if a recording is already running (e.g. you
+//! pressed record by hand) it adopts it and stops it when the call ends. Recordings
+//! that never overlapped a Teams call are never touched.
 
 use std::time::{Duration, Instant};
 
@@ -21,6 +23,24 @@ const START_AFTER: Duration = Duration::from_secs(5);
 const STOP_AFTER: Duration = Duration::from_secs(30);
 /// Wait after any recording ends before auto-starting another (frontend save window).
 const COOLDOWN: Duration = Duration::from_secs(90);
+
+/// What to do when a call has been held long enough to count as started.
+#[derive(Debug, PartialEq, Eq)]
+pub enum StartDecision {
+    Begin,
+    /// A recording is already running: take it over so the call's end stops it.
+    Adopt,
+    /// A recording just ended and is still being saved: try again later.
+    Retry,
+}
+
+pub fn decide_start(recording: bool, cooling_down: bool) -> StartDecision {
+    match (recording, cooling_down) {
+        (false, false) => StartDecision::Begin,
+        (true, _) => StartDecision::Adopt,
+        (false, true) => StartDecision::Retry,
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Action {
@@ -139,9 +159,18 @@ pub fn start<R: Runtime>(app: AppHandle<R>) {
                     // The frontend saves a stopped meeting asynchronously (up to ~60s);
                     // starting the next one before that finishes mixes their transcripts.
                     let cooling_down = last_recording_end.is_some_and(|t| now.duration_since(t) < COOLDOWN);
-                    if recording || cooling_down {
-                        debouncer.reset(); // retry on later ticks
-                        continue;
+                    match decide_start(recording, cooling_down) {
+                        StartDecision::Retry => {
+                            debouncer.reset(); // retry on later ticks
+                            continue;
+                        }
+                        StartDecision::Adopt => {
+                            log::info!("meeting_detector: Teams call detected during a running recording, will stop it when the call ends");
+                            we_started = true;
+                            notify(&app, "Reunião do Teams detectada", "A gravação em andamento vai parar quando a call terminar.");
+                            continue;
+                        }
+                        StartDecision::Begin => {}
                     }
                     let name = format!("Teams {}", chrono::Local::now().format("%Y-%m-%d %H:%M"));
                     log::info!("meeting_detector: Teams call detected, starting recording '{}'", name);
@@ -199,6 +228,14 @@ mod tests {
         assert_eq!(d.step(false, at(t, 40)), None); // 28s out
         assert_eq!(d.step(false, at(t, 42)), Some(Action::Stop));
         assert_eq!(d.step(false, at(t, 45)), None);
+    }
+
+    #[test]
+    fn running_recording_is_adopted_not_ignored() {
+        assert_eq!(decide_start(false, false), StartDecision::Begin);
+        assert_eq!(decide_start(true, false), StartDecision::Adopt);
+        assert_eq!(decide_start(true, true), StartDecision::Adopt);
+        assert_eq!(decide_start(false, true), StartDecision::Retry);
     }
 
     #[test]
