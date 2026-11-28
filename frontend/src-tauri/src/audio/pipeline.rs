@@ -626,6 +626,7 @@ impl AudioCapture {
             timestamp,
             chunk_id,
             device_type: self.device_type.clone(),
+            speaker: None,
         };
 
         // NOTE: Raw audio is NOT sent to recording saver to prevent echo
@@ -688,6 +689,40 @@ impl AudioCapture {
     }
 }
 
+/// Windows quieter than this (mean square) are not counted as speech energy.
+const SPEAKER_ENERGY_FLOOR: f32 = 1e-5;
+/// System-channel share of the energy at or below which a segment is "Você".
+const MIC_ONLY_MAX_SYS_SHARE: f32 = 0.15;
+/// System-channel share at or above which a segment is "Outros". Between the two
+/// is "Ambos" (overlap, or a remote voice leaking into the mic on laptop speakers).
+const OTHERS_MIN_SYS_SHARE: f32 = 0.5;
+
+/// Label a VAD segment from the energy each channel contributed.
+/// ponytail: two channels only — several remote people all read as "Outros";
+/// real diarization needs a model and is not wired into the live path.
+fn label_speaker(mic_energy: f32, sys_energy: f32) -> Option<&'static str> {
+    let total = mic_energy + sys_energy;
+    if total <= 0.0 {
+        return None;
+    }
+    let sys_share = sys_energy / total;
+    Some(if sys_share <= MIC_ONLY_MAX_SYS_SHARE {
+        "Você"
+    } else if sys_share >= OTHERS_MIN_SYS_SHARE {
+        "Outros"
+    } else {
+        "Ambos"
+    })
+}
+
+fn mean_square(window: &[f32]) -> f32 {
+    if window.is_empty() {
+        return 0.0;
+    }
+    let ms = window.iter().map(|x| x * x).sum::<f32>() / window.len() as f32;
+    if ms > SPEAKER_ENERGY_FLOOR { ms } else { 0.0 }
+}
+
 /// VAD-driven audio processing pipeline
 /// Uses Voice Activity Detection to segment speech in real-time and send only speech to Whisper
 pub struct AudioPipeline {
@@ -697,6 +732,9 @@ pub struct AudioPipeline {
     vad_processor: ContinuousVadProcessor,
     sample_rate: u32,
     chunk_id_counter: u64,
+    // Speech energy per channel since the last segment was emitted (see label_speaker)
+    mic_energy: f32,
+    sys_energy: f32,
     // Performance optimization: reduce logging frequency
     last_summary_time: std::time::Instant,
     processed_chunks: u64,
@@ -776,6 +814,8 @@ impl AudioPipeline {
             vad_processor,
             sample_rate,
             chunk_id_counter: 0,
+            mic_energy: 0.0,
+            sys_energy: 0.0,
             // Performance optimization: reduce logging frequency
             last_summary_time: std::time::Instant::now(),
             processed_chunks: 0,
@@ -847,6 +887,8 @@ impl AudioPipeline {
                     // STEP 2: Mix audio in fixed windows when both streams have sufficient data
                     while self.ring_buffer.can_mix() {
                         if let Some((mic_window, sys_window)) = self.ring_buffer.extract_window() {
+                            self.mic_energy += mean_square(&mic_window);
+                            self.sys_energy += mean_square(&sys_window);
                             // Simple mixing without aggressive ducking
                             let mixed_clean = self.mixer.mix_window(&mic_window, &sys_window);
 
@@ -860,6 +902,7 @@ impl AudioPipeline {
                             match self.vad_processor.process_audio(&mixed_with_gain) {
                                 Ok(speech_segments) => {
                                     for segment in speech_segments {
+                                        let speaker = self.take_speaker();
                                         let duration_ms = segment.end_timestamp_ms - segment.start_timestamp_ms;
 
                                         if segment.samples.len() >= 800 {  // Minimum 50ms at 16kHz - matches Parakeet capability
@@ -872,6 +915,7 @@ impl AudioPipeline {
                                                 timestamp: segment.start_timestamp_ms / 1000.0,
                                                 chunk_id: self.chunk_id_counter,
                                                 device_type: DeviceType::Microphone,  // Mixed audio
+                                                speaker,
                                             };
 
                                             if let Err(e) = self.transcription_sender.send(transcription_chunk) {
@@ -898,6 +942,7 @@ impl AudioPipeline {
                                     timestamp: chunk.timestamp,
                                     chunk_id: self.chunk_id_counter,
                                     device_type: DeviceType::Microphone,  // Mixed audio
+                                    speaker: None,
                                 };
                                 let _ = sender.send(recording_chunk);
                             }
@@ -922,6 +967,14 @@ impl AudioPipeline {
         Ok(())
     }
 
+    /// Label for the segment about to be sent; resets the per-channel tally.
+    fn take_speaker(&mut self) -> Option<&'static str> {
+        let label = label_speaker(self.mic_energy, self.sys_energy);
+        self.mic_energy = 0.0;
+        self.sys_energy = 0.0;
+        label
+    }
+
     fn flush_remaining_audio(&mut self) -> Result<()> {
         info!("Flushing remaining audio from pipeline (processed {} chunks)", self.processed_chunks);
 
@@ -929,6 +982,7 @@ impl AudioPipeline {
         match self.vad_processor.flush() {
             Ok(final_segments) => {
                 for segment in final_segments {
+                    let speaker = self.take_speaker();
                     let duration_ms = segment.end_timestamp_ms - segment.start_timestamp_ms;
 
                     // Send segments >= 50ms (800 samples at 16kHz) - matches main pipeline filter
@@ -942,6 +996,7 @@ impl AudioPipeline {
                             timestamp: segment.start_timestamp_ms / 1000.0,
                             chunk_id: self.chunk_id_counter,
                             device_type: DeviceType::Microphone,
+                            speaker,
                         };
 
                         if let Err(e) = self.transcription_sender.send(transcription_chunk) {
@@ -1063,6 +1118,7 @@ impl AudioPipelineManager {
                 timestamp: 0.0,
                 chunk_id: u64::MAX, // Special ID to indicate flush
                 device_type: super::recording_state::DeviceType::Microphone,
+                speaker: None,
             };
 
             if let Err(e) = sender.send(flush_chunk) {
@@ -1083,6 +1139,7 @@ impl AudioPipelineManager {
                         timestamp: 0.0,
                         chunk_id: u64::MAX - (i as u64),
                         device_type: super::recording_state::DeviceType::Microphone,
+                        speaker: None,
                     };
                     let _ = sender.send(additional_flush);
                 }
@@ -1112,5 +1169,26 @@ mod tests {
         // uninterrupted speech. Batch import/retranscription use 2000ms.
         // See #679 and #756.
         assert_eq!(VAD_REDEMPTION_TIME_MS, 500);
+    }
+}
+
+#[cfg(test)]
+mod speaker_tests {
+    use super::*;
+
+    #[test]
+    fn labels_follow_the_system_channel_share() {
+        assert_eq!(label_speaker(0.0, 0.0), None);
+        assert_eq!(label_speaker(1.0, 0.0), Some("Você"));
+        assert_eq!(label_speaker(1.0, 0.1), Some("Você")); // share 0.09
+        assert_eq!(label_speaker(1.0, 1.0), Some("Outros")); // share 0.5
+        assert_eq!(label_speaker(0.0, 1.0), Some("Outros"));
+        assert_eq!(label_speaker(1.0, 0.4), Some("Ambos")); // share ~0.29
+    }
+
+    #[test]
+    fn near_silence_is_not_counted() {
+        assert_eq!(mean_square(&[0.001; 800]), 0.0);
+        assert!(mean_square(&[0.1; 800]) > 0.0);
     }
 }

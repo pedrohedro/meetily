@@ -22,6 +22,9 @@ pub struct AudioChunk {
     pub timestamp: f64,
     pub chunk_id: u64,
     pub device_type: DeviceType,
+    /// Who spoke ("Você" / "Outros" / "Ambos"), set only on transcription
+    /// segments by the pipeline from the mic/system energy split.
+    pub speaker: Option<&'static str>,
 }
 
 /// Processed audio chunk (post-VAD) for recording
